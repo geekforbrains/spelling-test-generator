@@ -1,0 +1,5 @@
+{
+  "name": "Spelling Test Generator",
+  "description": "Upload a photo of a spelling sheet to automatically create a fun, interactive spelling test for your kids. The app extracts words, generates example sentences, and provides audio pronunciations to help them learn.",
+  "requestFramePermissions": []
+}

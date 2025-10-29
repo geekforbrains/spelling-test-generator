@@ -27,10 +27,14 @@ const TestPage: React.FC<TestPageProps> = ({ test, onTestComplete, onExit }) => 
   
   const resultsRef = useRef<{ word: string; answer: string; isCorrect: boolean }[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const isMountedRef = useRef(true);
 
   const currentWord = test.words[currentWordIndex];
 
   const playAudio = useCallback(async (base64Audio: string) => {
+    if (!isMountedRef.current) return;
+    
     if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
     }
@@ -39,12 +43,22 @@ const TestPage: React.FC<TestPageProps> = ({ test, onTestComplete, onExit }) => 
     try {
         const decodedData = decode(base64Audio);
         const audioBuffer = await decodeAudioData(decodedData, audioContext, 24000, 1);
+        
+        if (!isMountedRef.current) return;
+        
         const source = audioContext.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(audioContext.destination);
         
+        // Track this source so we can stop it if needed
+        activeSourcesRef.current.push(source);
+        
         return new Promise<void>((resolve) => {
-            source.onended = () => resolve();
+            source.onended = () => {
+                // Remove from active sources when finished
+                activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+                resolve();
+            };
             source.start();
         });
     } catch (error) {
@@ -53,17 +67,27 @@ const TestPage: React.FC<TestPageProps> = ({ test, onTestComplete, onExit }) => 
   }, []);
 
   const speakWordAndSentence = useCallback(async (word: string, sentenceToSpeak: string) => {
+      if (!isMountedRef.current) return;
+      
       setIsSpeaking(true);
       try {
           const wordAudio = await textToSpeech(word);
+          if (!isMountedRef.current) return;
           await playAudio(wordAudio);
+          
+          if (!isMountedRef.current) return;
           await new Promise(resolve => setTimeout(resolve, 300)); // Small pause
+          
+          if (!isMountedRef.current) return;
           const sentenceAudio = await textToSpeech(sentenceToSpeak);
+          if (!isMountedRef.current) return;
           await playAudio(sentenceAudio);
       } catch (error) {
           console.error("Error in speech synthesis process:", error);
       } finally {
-          setIsSpeaking(false);
+          if (isMountedRef.current) {
+              setIsSpeaking(false);
+          }
       }
   }, [playAudio]);
 
@@ -84,6 +108,29 @@ const TestPage: React.FC<TestPageProps> = ({ test, onTestComplete, onExit }) => 
       });
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWordIndex, test.words]);
+
+  // Cleanup effect: stop all audio when component unmounts
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      
+      // Stop all active audio sources
+      activeSourcesRef.current.forEach(source => {
+        try {
+          source.stop();
+        } catch (error) {
+          // Source may already be stopped, ignore error
+        }
+      });
+      activeSourcesRef.current = [];
+      
+      // Close audio context
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

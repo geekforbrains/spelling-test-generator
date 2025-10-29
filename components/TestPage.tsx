@@ -117,16 +117,26 @@ const TestPage: React.FC<TestPageProps> = ({ test, onTestComplete, onExit }) => 
       // Stop all active audio sources
       activeSourcesRef.current.forEach(source => {
         try {
-          source.stop();
+          // Check if source is in a state that can be stopped
+          if (source.context.state !== 'closed') {
+            source.stop();
+          }
         } catch (error) {
-          // Source may already be stopped, ignore error
+          // Only ignore "InvalidStateError" which occurs if source already stopped
+          if (error instanceof DOMException && error.name === 'InvalidStateError') {
+            // Expected - source already stopped
+          } else {
+            console.error("Unexpected error stopping audio source:", error);
+          }
         }
       });
       activeSourcesRef.current = [];
       
       // Close audio context
       if (audioContextRef.current) {
-        audioContextRef.current.close();
+        audioContextRef.current.close().catch(error => {
+          console.error("Error closing audio context:", error);
+        });
         audioContextRef.current = null;
       }
     };
